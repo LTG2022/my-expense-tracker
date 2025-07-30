@@ -19,6 +19,7 @@
                 <button class="nav-btn" data-tab="add"><i class="fas fa-plus"></i> 添加记录</button>
                 <button class="nav-btn" data-tab="summary"><i class="fas fa-chart-bar"></i> 汇总统计</button>
                 <button class="nav-btn" data-tab="tags"><i class="fas fa-tags"></i> 标签管理</button>
+                <button class="nav-btn" data-tab="sync"><i class="fas fa-cloud"></i> 云同步</button>
             </nav>
         </header>
 
@@ -281,6 +282,122 @@
                         </button>
                     </div>
                     <div id="platformTagsList" class="tags-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 云同步设置页面 -->
+        <div id="sync" class="tab-content">
+            <div class="section-header">
+                <h2>云同步设置</h2>
+                <div class="sync-status">
+                    <span id="syncStatusText">未启用</span>
+                    <i id="syncStatusIcon" class="fas fa-times-circle" style="color: #e74c3c;"></i>
+                </div>
+            </div>
+
+            <div class="sync-container">
+                <div class="sync-section">
+                    <h3>自动云同步</h3>
+                    <p class="sync-description">
+                        启用云同步后，您的记账数据将自动同步到GitHub Gist，实现多设备实时同步。
+                        数据安全存储在您的GitHub账号中，完全受您控制。
+                    </p>
+
+                    <div class="sync-setup" id="syncSetup">
+                        <div class="form-group">
+                            <label for="githubTokenInput">GitHub访问令牌：</label>
+                            <div class="input-with-btn">
+                                <input type="password" id="githubTokenInput" placeholder="输入您的GitHub Personal Access Token">
+                                <button type="button" class="btn-small" onclick="toggleTokenVisibility()">
+                                    <i class="fas fa-eye" id="tokenVisibilityIcon"></i>
+                                </button>
+                            </div>
+                            <small class="form-help">
+                                需要创建GitHub Token？<a href="https://github.com/settings/tokens" target="_blank">点击这里</a>
+                                （需要勾选 gist 权限）
+                            </small>
+                        </div>
+
+                        <div class="sync-actions">
+                            <button class="btn btn-primary" onclick="enableCloudSync()">
+                                <i class="fas fa-cloud-upload-alt"></i> 启用云同步
+                            </button>
+                            <button class="btn btn-secondary" onclick="testConnection()">
+                                <i class="fas fa-plug"></i> 测试连接
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="sync-enabled" id="syncEnabled" style="display: none;">
+                        <div class="sync-info">
+                            <div class="info-item">
+                                <label>同步状态：</label>
+                                <span class="status-active">
+                                    <i class="fas fa-check-circle"></i> 已启用
+                                </span>
+                            </div>
+                            <div class="info-item">
+                                <label>最后同步：</label>
+                                <span id="lastSyncTime">未同步</span>
+                            </div>
+                            <div class="info-item">
+                                <label>Gist ID：</label>
+                                <span id="currentGistId">-</span>
+                            </div>
+                        </div>
+
+                        <div class="sync-actions">
+                            <button class="btn btn-primary" onclick="manualSync()">
+                                <i class="fas fa-sync-alt"></i> 立即同步
+                            </button>
+                            <button class="btn btn-secondary" onclick="downloadFromCloud()">
+                                <i class="fas fa-cloud-download-alt"></i> 从云端恢复
+                            </button>
+                            <button class="btn btn-danger" onclick="disableCloudSync()">
+                                <i class="fas fa-times"></i> 禁用同步
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sync-section">
+                    <h3>同步说明</h3>
+                    <div class="sync-help">
+                        <div class="help-item">
+                            <i class="fas fa-info-circle"></i>
+                            <div>
+                                <strong>什么是GitHub Token？</strong>
+                                <p>GitHub Personal Access Token是您的身份凭证，用于安全访问您的GitHub账号。</p>
+                            </div>
+                        </div>
+                        <div class="help-item">
+                            <i class="fas fa-shield-alt"></i>
+                            <div>
+                                <strong>数据安全吗？</strong>
+                                <p>完全安全！数据存储在您自己的GitHub账号中，只有您能访问。</p>
+                            </div>
+                        </div>
+                        <div class="help-item">
+                            <i class="fas fa-bolt"></i>
+                            <div>
+                                <strong>多设备同步</strong>
+                                <p>在任何设备上启用云同步，数据将自动保持一致。</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="setup-steps">
+                        <h4>设置步骤：</h4>
+                        <ol>
+                            <li>访问 <a href="https://github.com/settings/tokens" target="_blank">GitHub Token设置</a></li>
+                            <li>点击 "Generate new token" → "Generate new token (classic)"</li>
+                            <li>勾选 "gist" 权限</li>
+                            <li>点击 "Generate token" 并复制Token</li>
+                            <li>将Token粘贴到上方输入框中</li>
+                            <li>点击 "启用云同步"</li>
+                        </ol>
+                    </div>
                 </div>
             </div>
         </div>

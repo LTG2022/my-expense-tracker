@@ -4,6 +4,9 @@ let siteTags = [];
 let platformTags = [];
 let currentEditId = null;
 let deleteRecordId = null;
+let githubToken = '';
+let gistId = '';
+let autoSyncEnabled = false;
 
 // 初始化应用
 document.addEventListener('DOMContentLoaded', function() {
@@ -16,6 +19,7 @@ function initializeApp() {
     initializeCurrentDateTime();
     initializeEventListeners();
     initializeDefaultTags();
+    initializeCloudSync(); // 初始化云同步
     renderRecords();
     renderTags();
     updateFilterOptions();
@@ -1069,7 +1073,364 @@ function validateImportData(data) {
     }
 }
 
+// 云同步功能
+async function enableCloudSync() {
+    const token = document.getElementById('githubTokenInput').value.trim();
+    
+    if (!token) {
+        showMessage('请输入GitHub Token', 'error');
+        return;
+    }
+    
+    try {
+        showMessage('正在启用云同步...', 'success');
+        
+        // 测试Token是否有效
+        const testResponse = await fetch('https://api.github.com/user', {
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        });
+        
+        if (!testResponse.ok) {
+            throw new Error('Token无效或权限不足');
+        }
+        
+        // 创建或获取Gist
+        const gistData = await createOrGetGist(token);
+        
+        // 保存设置
+        githubToken = token;
+        gistId = gistData.id;
+        autoSyncEnabled = true;
+        
+        localStorage.setItem('githubToken', token);
+        localStorage.setItem('gistId', gistId);
+        localStorage.setItem('autoSyncEnabled', 'true');
+        
+        // 初次同步数据到云端
+        await syncToCloud();
+        
+        // 更新界面
+        updateSyncUI();
+        
+        showMessage('云同步启用成功！', 'success');
+        
+    } catch (error) {
+        console.error('启用云同步失败:', error);
+        showMessage(`启用失败: ${error.message}`, 'error');
+    }
+}
+
+async function createOrGetGist(token) {
+    try {
+        // 尝试查找现有的记账数据Gist
+        const gistsResponse = await fetch('https://api.github.com/gists', {
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        });
+        
+        if (gistsResponse.ok) {
+            const gists = await gistsResponse.json();
+            const existingGist = gists.find(gist => 
+                gist.files && gist.files['expense-tracker-data.json']
+            );
+            
+            if (existingGist) {
+                return existingGist;
+            }
+        }
+        
+        // 创建新的Gist
+        const createData = {
+            description: '个人记账系统数据',
+            public: false,
+            files: {
+                'expense-tracker-data.json': {
+                    content: JSON.stringify({
+                        records: records,
+                        siteTags: siteTags,
+                        platformTags: platformTags,
+                        lastSync: new Date().toISOString(),
+                        version: '1.0'
+                    }, null, 2)
+                }
+            }
+        };
+        
+        const createResponse = await fetch('https://api.github.com/gists', {
+            method: 'POST',
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(createData)
+        });
+        
+        if (!createResponse.ok) {
+            throw new Error('创建Gist失败');
+        }
+        
+        return await createResponse.json();
+        
+    } catch (error) {
+        throw new Error(`处理Gist失败: ${error.message}`);
+    }
+}
+
+async function syncToCloud() {
+    if (!autoSyncEnabled || !githubToken || !gistId) {
+        return;
+    }
+    
+    try {
+        const syncData = {
+            records: records,
+            siteTags: siteTags,
+            platformTags: platformTags,
+            lastSync: new Date().toISOString(),
+            version: '1.0'
+        };
+        
+        const updateData = {
+            files: {
+                'expense-tracker-data.json': {
+                    content: JSON.stringify(syncData, null, 2)
+                }
+            }
+        };
+        
+        const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `token ${githubToken}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updateData)
+        });
+        
+        if (!response.ok) {
+            throw new Error('同步到云端失败');
+        }
+        
+        // 更新最后同步时间
+        localStorage.setItem('lastSyncTime', new Date().toISOString());
+        updateSyncUI();
+        
+    } catch (error) {
+        console.error('云同步失败:', error);
+        showMessage(`云同步失败: ${error.message}`, 'error');
+    }
+}
+
+async function downloadFromCloud(showConfirm = true, showMessages = true) {
+    if (!githubToken || !gistId) {
+        if (showMessages) showMessage('云同步未启用', 'error');
+        return;
+    }
+    
+    try {
+        if (showMessages) showMessage('正在从云端恢复数据...', 'success');
+        
+        const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+            headers: {
+                'Authorization': `token ${githubToken}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('获取云端数据失败');
+        }
+        
+        const gist = await response.json();
+        const fileContent = gist.files['expense-tracker-data.json']?.content;
+        
+        if (!fileContent) {
+            throw new Error('云端数据格式错误');
+        }
+        
+        const cloudData = JSON.parse(fileContent);
+        
+        // 询问是否覆盖本地数据（可选）
+        if (showConfirm) {
+            const confirmMessage = `从云端恢复数据将覆盖本地数据，是否继续？\n\n` +
+                                 `本地记录：${records.length}条\n` +
+                                 `云端记录：${cloudData.records ? cloudData.records.length : 0}条\n` +
+                                 `云端最后同步：${cloudData.lastSync ? new Date(cloudData.lastSync).toLocaleString() : '未知'}`;
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+        }
+        
+        // 恢复数据
+        records = cloudData.records || [];
+        siteTags = cloudData.siteTags || [];
+        platformTags = cloudData.platformTags || [];
+        
+        // 保存到本地
+        originalSaveData(); // 使用原始保存函数，避免触发自动同步
+        
+        // 刷新界面
+        renderRecords();
+        renderTags();
+        updateFilterOptions();
+        updateSummary();
+        
+        if (showMessages) {
+            showMessage(`数据恢复成功！已恢复${records.length}条记录`, 'success');
+        }
+        
+    } catch (error) {
+        console.error('从云端恢复失败:', error);
+        if (showMessages) {
+            showMessage(`恢复失败: ${error.message}`, 'error');
+        }
+    }
+}
+
+function disableCloudSync() {
+    if (!confirm('确定要禁用云同步吗？这不会删除云端数据，但会停止自动同步。')) {
+        return;
+    }
+    
+    githubToken = '';
+    gistId = '';
+    autoSyncEnabled = false;
+    
+    localStorage.removeItem('githubToken');
+    localStorage.removeItem('gistId');
+    localStorage.removeItem('autoSyncEnabled');
+    localStorage.removeItem('lastSyncTime');
+    
+    updateSyncUI();
+    showMessage('云同步已禁用', 'success');
+}
+
+function manualSync() {
+    if (!autoSyncEnabled) {
+        showMessage('云同步未启用', 'error');
+        return;
+    }
+    
+    showMessage('正在同步到云端...', 'success');
+    syncToCloud();
+}
+
+async function testConnection() {
+    const token = document.getElementById('githubTokenInput').value.trim();
+    
+    if (!token) {
+        showMessage('请输入GitHub Token', 'error');
+        return;
+    }
+    
+    try {
+        showMessage('正在测试连接...', 'success');
+        
+        const response = await fetch('https://api.github.com/user', {
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        });
+        
+        if (response.ok) {
+            const user = await response.json();
+            showMessage(`连接成功！已验证用户：${user.login}`, 'success');
+        } else {
+            throw new Error('Token无效或权限不足');
+        }
+        
+    } catch (error) {
+        showMessage(`连接失败: ${error.message}`, 'error');
+    }
+}
+
+function toggleTokenVisibility() {
+    const input = document.getElementById('githubTokenInput');
+    const icon = document.getElementById('tokenVisibilityIcon');
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+    } else {
+        input.type = 'password';
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+    }
+}
+
+function updateSyncUI() {
+    const syncSetup = document.getElementById('syncSetup');
+    const syncEnabled = document.getElementById('syncEnabled');
+    const syncStatusText = document.getElementById('syncStatusText');
+    const syncStatusIcon = document.getElementById('syncStatusIcon');
+    const lastSyncTime = document.getElementById('lastSyncTime');
+    const currentGistId = document.getElementById('currentGistId');
+    
+    if (autoSyncEnabled) {
+        syncSetup.style.display = 'none';
+        syncEnabled.style.display = 'block';
+        syncStatusText.textContent = '已启用';
+        syncStatusIcon.className = 'fas fa-check-circle';
+        syncStatusIcon.style.color = '#27ae60';
+        
+        const lastSync = localStorage.getItem('lastSyncTime');
+        if (lastSync) {
+            lastSyncTime.textContent = new Date(lastSync).toLocaleString();
+        }
+        
+        currentGistId.textContent = gistId || '-';
+    } else {
+        syncSetup.style.display = 'block';
+        syncEnabled.style.display = 'none';
+        syncStatusText.textContent = '未启用';
+        syncStatusIcon.className = 'fas fa-times-circle';
+        syncStatusIcon.style.color = '#e74c3c';
+    }
+}
+
+// 初始化云同步设置
+function initializeCloudSync() {
+    const savedToken = localStorage.getItem('githubToken');
+    const savedGistId = localStorage.getItem('gistId');
+    const savedAutoSync = localStorage.getItem('autoSyncEnabled');
+    
+    if (savedToken && savedGistId && savedAutoSync === 'true') {
+        githubToken = savedToken;
+        gistId = savedGistId;
+        autoSyncEnabled = true;
+        
+        // 页面加载时静默从云端恢复最新数据
+        setTimeout(() => {
+            downloadFromCloud(false, false); // 不显示确认对话框和消息
+        }, 2000);
+    }
+    
+    updateSyncUI();
+}
+
+// 修改原有的保存数据函数，添加自动同步
+const originalSaveData = saveData;
+saveData = function() {
+    originalSaveData();
+    
+    // 自动同步到云端（延迟执行，避免频繁同步）
+    if (autoSyncEnabled) {
+        clearTimeout(window.syncTimeout);
+        window.syncTimeout = setTimeout(() => {
+            syncToCloud();
+        }, 3000); // 3秒后同步
+    }
+};
+
 // 页面关闭前保存数据
 window.addEventListener('beforeunload', function() {
-    saveData();
+    originalSaveData();
 });
