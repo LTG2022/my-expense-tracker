@@ -101,6 +101,14 @@ function initializeEventListeners() {
         if (e.key === 'Enter') addTag('platform');
     });
 
+    // 金额输入框回车事件 - 快速保存
+    document.getElementById('amount').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('recordForm').dispatchEvent(new Event('submit'));
+        }
+    });
+
     // 点击模态框背景关闭
     document.getElementById('deleteModal').addEventListener('click', (e) => {
         if (e.target === document.getElementById('deleteModal')) {
@@ -165,12 +173,20 @@ function switchTab(tabName) {
 function handleFormSubmit(e) {
     e.preventDefault();
     
+    // 获取当前时间作为默认值
+    const now = new Date();
+    const defaultDate = now.getFullYear() + '-' + 
+                       String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                       String(now.getDate()).padStart(2, '0');
+    const defaultTime = String(now.getHours()).padStart(2, '0') + ':' + 
+                       String(now.getMinutes()).padStart(2, '0');
+
     const formData = {
         id: currentEditId || generateId(),
-        date: document.getElementById('recordDate').value,
-        time: document.getElementById('recordTime').value,
+        date: document.getElementById('recordDate').value || defaultDate,
+        time: document.getElementById('recordTime').value || defaultTime,
         amount: parseFloat(document.getElementById('amount').value),
-        description: document.getElementById('description').value.trim(),
+        description: document.getElementById('description').value.trim() || '快速记录',
         paymentSite: document.getElementById('paymentSite').value.trim(),
         paymentPlatform: document.getElementById('paymentPlatform').value.trim(),
         category: document.getElementById('category').value,
@@ -179,9 +195,9 @@ function handleFormSubmit(e) {
         updatedAt: new Date().toISOString()
     };
 
-    // 验证必填字段
-    if (!formData.date || !formData.time || !formData.amount || !formData.description) {
-        showMessage('请填写所有必填字段', 'error');
+    // 验证必填字段 - 现在只需要验证金额
+    if (!formData.amount) {
+        showMessage('请输入金额', 'error');
         return;
     }
 

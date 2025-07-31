@@ -126,24 +126,29 @@
                 <h2 id="formTitle">添加新记录</h2>
             </div>
 
+            <div class="quick-add-tip" style="background: #e8f5e8; border-left: 4px solid #27ae60; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
+                <i class="fas fa-lightbulb" style="color: #27ae60;"></i>
+                <strong>⚡ 快速记账：</strong>只需输入金额即可保存记录！按回车键或点击保存按钮，其他字段留空时将自动填入默认值。
+            </div>
+
             <div class="form-container">
                 <form id="recordForm" class="record-form">
                     <input type="hidden" id="editId" value="">
                     
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="recordDate">日期：</label>
-                            <input type="date" id="recordDate" required>
+                            <label for="recordDate">日期（可选）：</label>
+                            <input type="date" id="recordDate">
                         </div>
                         <div class="form-group">
-                            <label for="recordTime">时间：</label>
-                            <input type="time" id="recordTime" required>
+                            <label for="recordTime">时间（可选）：</label>
+                            <input type="time" id="recordTime">
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="amount">金额：</label>
+                            <label for="amount">金额<span style="color: red;">*</span>：</label>
                             <input type="number" id="amount" step="0.01" min="0" placeholder="0.00" required>
                         </div>
                         <div class="form-group">
@@ -161,8 +166,8 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="description">购买明细：</label>
-                        <textarea id="description" placeholder="请描述购买的物品或服务..." required></textarea>
+                        <label for="description">购买明细（可选）：</label>
+                        <textarea id="description" placeholder="请描述购买的物品或服务（可选）..."></textarea>
                     </div>
 
                     <div class="form-row">
