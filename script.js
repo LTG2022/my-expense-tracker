@@ -1434,3 +1434,236 @@ saveData = function() {
 window.addEventListener('beforeunload', function() {
     originalSaveData();
 });
+
+// ========== 智能自动同步功能 ==========
+
+// 自动同步状态变量
+let autoSyncInterval = null;
+let lastCloudSyncTime = null;
+let isCheckingCloudUpdates = false;
+
+// 启动智能自动同步
+function startIntelligentAutoSync() {
+    if (!autoSyncEnabled || !githubToken || !gistId) {
+        return;
+    }
+    
+    console.log('🚀 启动智能自动同步');
+    
+    // 1. 定时检查云端更新（每30秒）
+    if (autoSyncInterval) {
+        clearInterval(autoSyncInterval);
+    }
+    
+    autoSyncInterval = setInterval(() => {
+        checkCloudUpdatesQuietly();
+    }, 30000); // 30秒检查一次
+    
+    // 2. 页面获得焦点时检查更新
+    window.addEventListener('focus', () => {
+        setTimeout(() => {
+            checkCloudUpdatesQuietly();
+        }, 1000); // 延迟1秒，避免频繁检查
+    });
+    
+    // 3. 页面可见性变化时检查
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            setTimeout(() => {
+                checkCloudUpdatesQuietly();
+            }, 1000);
+        }
+    });
+}
+
+// 静默检查云端更新
+async function checkCloudUpdatesQuietly() {
+    if (!autoSyncEnabled || !githubToken || !gistId || isCheckingCloudUpdates) {
+        return;
+    }
+    
+    isCheckingCloudUpdates = true;
+    
+    try {
+        // 获取云端数据
+        const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+            headers: {
+                'Authorization': `token ${githubToken}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('获取云端数据失败');
+        }
+        
+        const gist = await response.json();
+        const fileContent = gist.files['expense-tracker-data.json']?.content;
+        
+        if (!fileContent) {
+            return;
+        }
+        
+        const cloudData = JSON.parse(fileContent);
+        const cloudSyncTime = cloudData.lastSync;
+        
+        // 获取本地最后同步时间
+        const localSyncTime = localStorage.getItem('lastSyncTime');
+        
+        // 比较同步时间，如果云端更新则自动下载
+        if (cloudSyncTime && cloudSyncTime !== localSyncTime) {
+            const cloudDate = new Date(cloudSyncTime);
+            const localDate = localSyncTime ? new Date(localSyncTime) : new Date(0);
+            
+            // 如果云端数据更新，且记录数量有变化，则静默同步
+            if (cloudDate > localDate && 
+                (cloudData.records?.length !== records.length || 
+                 JSON.stringify(cloudData.records) !== JSON.stringify(records))) {
+                
+                console.log('🔄 检测到云端数据更新，正在同步...');
+                
+                // 静默下载并更新本地数据
+                await downloadFromCloudSilently(cloudData);
+                
+                // 显示轻量提示
+                showAutoSyncNotification('数据已从云端自动更新');
+            }
+        }
+        
+    } catch (error) {
+        console.log('静默检查云端更新失败:', error.message);
+        // 不显示错误消息，保持静默
+    } finally {
+        isCheckingCloudUpdates = false;
+    }
+}
+
+// 静默从云端下载数据
+async function downloadFromCloudSilently(cloudData) {
+    try {
+        // 备份当前数据（以防万一）
+        const backupData = {
+            records: [...records],
+            siteTags: [...siteTags],
+            platformTags: [...platformTags]
+        };
+        
+        // 更新本地数据
+        records = cloudData.records || [];
+        siteTags = cloudData.siteTags || [];
+        platformTags = cloudData.platformTags || [];
+        
+        // 保存到本地存储
+        originalSaveData();
+        
+        // 更新界面
+        renderRecords();
+        renderTags();
+        updateFilterOptions();
+        updateSummary();
+        
+        // 更新最后同步时间
+        localStorage.setItem('lastSyncTime', cloudData.lastSync || new Date().toISOString());
+        updateSyncUI();
+        
+    } catch (error) {
+        console.error('静默同步失败:', error);
+        throw error;
+    }
+}
+
+// 显示自动同步通知
+function showAutoSyncNotification(message) {
+    // 创建轻量级通知
+    const notification = document.createElement('div');
+    notification.className = 'auto-sync-notification';
+    notification.innerHTML = `
+        <i class="fas fa-cloud-download-alt"></i>
+        <span>${message}</span>
+    `;
+    
+    // 添加样式
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #27ae60;
+        color: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        z-index: 1001;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        animation: slideInRight 0.3s ease;
+    `;
+    
+    // 添加动画样式
+    if (!document.querySelector('#autoSyncStyles')) {
+        const style = document.createElement('style');
+        style.id = 'autoSyncStyles';
+        style.textContent = `
+            @keyframes slideInRight {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOutRight {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(notification);
+    
+    // 3秒后自动消失
+    setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 3000);
+}
+
+// 停止自动同步
+function stopIntelligentAutoSync() {
+    if (autoSyncInterval) {
+        clearInterval(autoSyncInterval);
+        autoSyncInterval = null;
+    }
+    console.log('⏹️ 停止智能自动同步');
+}
+
+// 修改原有的启用云同步函数
+const originalEnableCloudSync = enableCloudSync;
+enableCloudSync = async function() {
+    await originalEnableCloudSync();
+    
+    // 启用成功后开启智能自动同步
+    if (autoSyncEnabled) {
+        startIntelligentAutoSync();
+    }
+};
+
+// 修改原有的禁用云同步函数
+const originalDisableCloudSync = disableCloudSync;
+disableCloudSync = function() {
+    stopIntelligentAutoSync();
+    originalDisableCloudSync();
+};
+
+// 修改初始化云同步函数
+const originalInitializeCloudSync = initializeCloudSync;
+initializeCloudSync = function() {
+    originalInitializeCloudSync();
+    
+    // 如果云同步已启用，则开启智能自动同步
+    if (autoSyncEnabled && githubToken && gistId) {
+        startIntelligentAutoSync();
+    }
+};
