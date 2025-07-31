@@ -1109,8 +1109,8 @@ async function enableCloudSync() {
         localStorage.setItem('gistId', gistId);
         localStorage.setItem('autoSyncEnabled', 'true');
         
-        // 初次同步数据到云端
-        await syncToCloud();
+        // 🔥 智能首次同步：安全合并云端和本地数据
+        await smartInitialSync(gistData);
         
         // 更新界面
         updateSyncUI();
@@ -1144,18 +1144,19 @@ async function createOrGetGist(token) {
             }
         }
         
-        // 创建新的Gist
+        // 创建新的Gist（使用安全的初始数据，避免覆盖问题）
         const createData = {
             description: '个人记账系统数据',
             public: false,
             files: {
                 'expense-tracker-data.json': {
                     content: JSON.stringify({
-                        records: records,
-                        siteTags: siteTags,
-                        platformTags: platformTags,
+                        records: [],
+                        siteTags: ['淘宝', '京东', '天猫', '拼多多', '美团', '饿了么', '滴滴出行', '12306', '其他'],
+                        platformTags: ['支付宝', '微信支付', '银行卡', '现金', '花呗', '信用卡', '其他'],
                         lastSync: new Date().toISOString(),
-                        version: '1.0'
+                        version: '1.0',
+                        isNewGist: true
                     }, null, 2)
                 }
             }
@@ -1179,6 +1180,191 @@ async function createOrGetGist(token) {
         
     } catch (error) {
         throw new Error(`处理Gist失败: ${error.message}`);
+    }
+}
+
+// 🔥 智能首次同步：安全合并云端和本地数据
+async function smartInitialSync(gistData) {
+    try {
+        showMessage('正在智能同步数据...', 'success');
+        
+        // 获取云端数据内容
+        const fileContent = gistData.files['expense-tracker-data.json']?.content;
+        
+        if (!fileContent) {
+            // 云端文件不存在，直接上传本地数据
+            await syncToCloud();
+            showMessage('本地数据已上传到云端', 'success');
+            return;
+        }
+        
+        const cloudData = JSON.parse(fileContent);
+        
+        // 检查是否是新创建的Gist
+        if (cloudData.isNewGist) {
+            // 新创建的Gist，直接上传本地数据
+            await syncToCloud();
+            showMessage('本地数据已上传到云端', 'success');
+            return;
+        }
+        
+        // 现有Gist，需要智能合并数据
+        const localRecordsCount = records.length;
+        const cloudRecordsCount = cloudData.records ? cloudData.records.length : 0;
+        
+        if (localRecordsCount === 0 && cloudRecordsCount > 0) {
+            // 本地无数据，云端有数据：直接下载云端数据
+            await downloadFromCloudSilently(cloudData);
+            showMessage(`已从云端恢复${cloudRecordsCount}条记录`, 'success');
+            
+        } else if (localRecordsCount > 0 && cloudRecordsCount === 0) {
+            // 本地有数据，云端无数据：上传本地数据
+            await syncToCloud();
+            showMessage(`已上传${localRecordsCount}条本地记录到云端`, 'success');
+            
+        } else if (localRecordsCount > 0 && cloudRecordsCount > 0) {
+            // 本地和云端都有数据：需要用户选择合并策略
+            const mergeChoice = await showDataMergeDialog(localRecordsCount, cloudRecordsCount, cloudData.lastSync);
+            
+            switch(mergeChoice) {
+                case 'cloud':
+                    // 使用云端数据，覆盖本地
+                    await downloadFromCloudSilently(cloudData);
+                    showMessage(`已使用云端数据，恢复${cloudRecordsCount}条记录`, 'success');
+                    break;
+                    
+                case 'local':
+                    // 使用本地数据，覆盖云端
+                    await syncToCloud();
+                    showMessage(`已使用本地数据，上传${localRecordsCount}条记录`, 'success');
+                    break;
+                    
+                case 'merge':
+                    // 智能合并
+                    await mergeLocalAndCloudData(cloudData);
+                    showMessage('已智能合并本地和云端数据', 'success');
+                    break;
+            }
+        } else {
+            // 都没有数据，直接同步
+            await syncToCloud();
+            showMessage('云同步已启用', 'success');
+        }
+        
+    } catch (error) {
+        console.error('智能同步失败:', error);
+        showMessage(`同步失败: ${error.message}`, 'error');
+        throw error;
+    }
+}
+
+// 显示数据合并选择对话框
+async function showDataMergeDialog(localCount, cloudCount, cloudLastSync) {
+    return new Promise((resolve) => {
+        // 创建模态框
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.display = 'block';
+        
+        const lastSyncText = cloudLastSync ? 
+            `云端最后同步：${new Date(cloudLastSync).toLocaleString()}` : 
+            '云端最后同步：未知';
+        
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 500px;">
+                <h3>🔄 检测到数据冲突</h3>
+                <div style="text-align: left; margin: 20px 0;">
+                    <p><strong>本地数据：</strong>${localCount} 条记录</p>
+                    <p><strong>云端数据：</strong>${cloudCount} 条记录</p>
+                    <p><strong>同步时间：</strong>${lastSyncText}</p>
+                </div>
+                <p style="color: #666; margin-bottom: 25px;">
+                    请选择如何处理数据冲突：
+                </p>
+                <div class="modal-actions" style="flex-direction: column; gap: 12px;">
+                    <button class="btn btn-primary merge-btn" data-choice="cloud">
+                        <i class="fas fa-cloud-download-alt"></i> 使用云端数据（覆盖本地）
+                    </button>
+                    <button class="btn btn-secondary merge-btn" data-choice="local">
+                        <i class="fas fa-upload"></i> 使用本地数据（覆盖云端）
+                    </button>
+                    <button class="btn btn-success merge-btn" data-choice="merge">
+                        <i class="fas fa-code-branch"></i> 智能合并（推荐）
+                    </button>
+                </div>
+                <p style="font-size: 12px; color: #999; margin-top: 15px;">
+                    建议选择"智能合并"，系统会自动去重并保留所有数据
+                </p>
+            </div>
+        `;
+        
+        // 添加事件监听
+        modal.querySelectorAll('.merge-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const choice = btn.dataset.choice;
+                document.body.removeChild(modal);
+                resolve(choice);
+            });
+        });
+        
+        // 点击背景关闭（默认选择合并）
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                document.body.removeChild(modal);
+                resolve('merge');
+            }
+        });
+        
+        document.body.appendChild(modal);
+    });
+}
+
+// 智能合并本地和云端数据
+async function mergeLocalAndCloudData(cloudData) {
+    try {
+        const mergedRecords = [...records];
+        const cloudRecords = cloudData.records || [];
+        
+        // 合并记录（根据ID去重）
+        const existingIds = new Set(mergedRecords.map(r => r.id));
+        
+        cloudRecords.forEach(cloudRecord => {
+            if (!existingIds.has(cloudRecord.id)) {
+                mergedRecords.push(cloudRecord);
+            }
+        });
+        
+        // 合并标签（去重）
+        const mergedSiteTags = [...new Set([...siteTags, ...(cloudData.siteTags || [])])];
+        const mergedPlatformTags = [...new Set([...platformTags, ...(cloudData.platformTags || [])])];
+        
+        // 按日期排序记录
+        mergedRecords.sort((a, b) => {
+            const dateA = new Date(a.date + ' ' + a.time);
+            const dateB = new Date(b.date + ' ' + b.time);
+            return dateB - dateA; // 最新的在前
+        });
+        
+        // 更新本地数据
+        records = mergedRecords;
+        siteTags = mergedSiteTags;
+        platformTags = mergedPlatformTags;
+        
+        // 保存到本地存储
+        originalSaveData();
+        
+        // 更新界面
+        renderRecords();
+        renderTags();
+        updateFilterOptions();
+        updateSummary();
+        
+        // 同步合并后的数据到云端
+        await syncToCloud();
+        
+    } catch (error) {
+        console.error('数据合并失败:', error);
+        throw new Error('数据合并失败');
     }
 }
 
