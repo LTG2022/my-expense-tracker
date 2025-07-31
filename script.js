@@ -1634,22 +1634,22 @@ function startIntelligentAutoSync() {
         return;
     }
     
-    console.log('🚀 启动智能自动同步');
+    console.log('🚀 启动超快智能自动同步');
     
-    // 1. 定时检查云端更新（每30秒）
+    // 1. 定时检查云端更新（每10秒）
     if (autoSyncInterval) {
         clearInterval(autoSyncInterval);
     }
     
     autoSyncInterval = setInterval(() => {
         checkCloudUpdatesQuietly();
-    }, 30000); // 30秒检查一次
+    }, 10000); // 10秒检查一次 - 更加及时
     
-    // 2. 页面获得焦点时检查更新
+    // 2. 页面获得焦点时立即检查更新
     window.addEventListener('focus', () => {
         setTimeout(() => {
             checkCloudUpdatesQuietly();
-        }, 1000); // 延迟1秒，避免频繁检查
+        }, 500); // 延迟500毫秒，更快响应
     });
     
     // 3. 页面可见性变化时检查
@@ -1657,8 +1657,31 @@ function startIntelligentAutoSync() {
         if (!document.hidden) {
             setTimeout(() => {
                 checkCloudUpdatesQuietly();
-            }, 1000);
+            }, 500); // 缩短延迟时间
         }
+    });
+    
+    // 4. 用户活动触发检查（防抖处理）
+    let userActivityTimeout;
+    const triggerActivityCheck = () => {
+        clearTimeout(userActivityTimeout);
+        userActivityTimeout = setTimeout(() => {
+            checkCloudUpdatesQuietly();
+        }, 3000); // 用户停止活动3秒后检查更新
+    };
+    
+    // 监听用户活动事件
+    ['click', 'keydown', 'scroll', 'touchstart'].forEach(eventType => {
+        document.addEventListener(eventType, triggerActivityCheck, { passive: true });
+    });
+    
+    // 5. 标签页切换时检查更新
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setTimeout(() => {
+                checkCloudUpdatesQuietly();
+            }, 1000); // 标签页切换1秒后检查
+        });
     });
 }
 
